@@ -1,9 +1,9 @@
 #!/bin/bash
-# Monitor VSP LDEVs for FMT (Format) operations and track overall progress
+# Monitor VSP LDEVs for FMT/QFMT (Format/Quick Format) operations and track overall progress
 # Usage: ./monitor_fmt.sh [-i instance] [-c count] [-s start_ldev] [-p pause_seconds]
 
 INSTANCE="H598"
-COUNT=107
+COUNT=57544
 START=57344
 PAUSE=60
 
@@ -58,7 +58,7 @@ clear
 draw_header
 
 echo -e "${GRAY}Scanning LDEV range ${START} to $((START + COUNT - 1))...${RESET}"
-echo -e "${GRAY}Identifying LDEVs with FMT operations...${RESET}"
+echo -e "${GRAY}Identifying LDEVs with FMT/QFMT operations...${RESET}"
 echo ""
 
 # ── Initial discovery scan ──────────────────────────────────────────
@@ -68,14 +68,14 @@ awk '
   /^OPE_TYPE :/ { ope = $NF }
   /^LDEV_NAMING :/ {
     name = $0; sub(/^LDEV_NAMING : /, "", name)
-    if (ope == "FMT") print ldev, name
+    if (ope == "FMT" || ope == "QFMT") print ldev, name, ope
   }
 ' > "$TRACKING_FILE"
 
 TOTAL_TRACKED=$(wc -l < "$TRACKING_FILE")
 
 if [ "$TOTAL_TRACKED" -eq 0 ]; then
-  echo -e "${GREEN}No LDEVs with active FMT operations found.${RESET}"
+  echo -e "${GREEN}No LDEVs with active FMT/QFMT operations found.${RESET}"
   rm -f "$TRACKING_FILE"
   exit 0
 fi
@@ -83,7 +83,7 @@ fi
 # Initialize empty previous-percentage file
 > "$PREV_PCT_FILE"
 
-echo -e "${WHITE}Tracking ${YELLOW}${TOTAL_TRACKED}${WHITE} LDEVs with FMT operations${RESET}"
+echo -e "${WHITE}Tracking ${YELLOW}${TOTAL_TRACKED}${WHITE} LDEVs with FMT/QFMT operations${RESET}"
 echo -e "${GRAY}Refresh: Every ${PAUSE}s  |  Press Ctrl+C to stop${RESET}"
 echo ""
 
@@ -96,6 +96,7 @@ while true; do
   NOW_EPOCH=$(date '+%s')
 
   fmt_count=0
+  qfmt_count=0
   done_count=0
   max_eta=0
   idx=0
@@ -115,7 +116,7 @@ while true; do
   # Ticker line placeholder
   echo -ne "  "
 
-  while read -r ldev_id ldev_name; do
+  while read -r ldev_id ldev_name orig_ope; do
     idx=$((idx + 1))
 
     info=$(raidcom get ldev -ldev_id "$ldev_id" -I$INSTANCE 2>/dev/null | \
@@ -156,6 +157,13 @@ while true; do
       if [ "$ldev_eta" -gt 0 ] && [ "$ldev_eta" -lt 999999 ] && [ "$ldev_eta" -gt "$max_eta" ]; then
         max_eta=$ldev_eta
       fi
+
+    elif [ "$ope" = "QFMT" ]; then
+      # Quick Format: OPE_RATE is always 100%, no meaningful progress delta
+      qfmt_count=$((qfmt_count + 1))
+      status="QFMT"
+      scolor="$CYAN"
+
     else
       done_count=$((done_count + 1))
       status="DONE"
@@ -223,12 +231,12 @@ while true; do
   printf "\r  ${WHITE}ETA: ${CYAN}%-60s${RESET}\n" "$eta_str"
 
   if [ "$done_count" -eq "$TOTAL_TRACKED" ]; then
-    printf "\r  ${GREEN}*** All ${TOTAL_TRACKED} LDEVs have completed formatting! ***${RESET}          \n"
+    printf "\r  ${GREEN}*** All ${TOTAL_TRACKED} LDEVs have completed formatting (FMT/QFMT → NONE)! ***${RESET}          \n"
     echo ""
     exit 0
   fi
 
-  printf "\r  ${GRAY}Scan #${SCAN_NUM} complete at ${TIMESTAMP}  |  ${YELLOW}${fmt_count} formatting${GRAY}  |  Next in ${PAUSE}s${RESET}          \n"
+  printf "\r  ${GRAY}Scan #${SCAN_NUM} complete at ${TIMESTAMP}  |  ${YELLOW}${fmt_count} FMT${GRAY}  |  ${CYAN}${qfmt_count} QFMT${GRAY}  |  Next in ${PAUSE}s${RESET}          \n"
   echo ""
 
   # Rotate: current percentages become previous for next scan
