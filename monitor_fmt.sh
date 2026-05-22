@@ -3,7 +3,7 @@
 # Usage: ./monitor_fmt.sh [-i instance] [-c count] [-s start_ldev] [-p pause_seconds]
 
 INSTANCE="H598"
-COUNT=57544
+COUNT=107
 START=57344
 PAUSE=60
 
